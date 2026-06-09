@@ -1,0 +1,20 @@
+[
+  {
+    "id": "nixiang-full-function-demo",
+    "name": "拟像 无限画布 · 全功能演示",
+    "description": "完整展示 API 节点、生成器、资产库、日记、AI 助手、上传和表格能力。",
+    "createdAt": "2026-06-02T15:41:10.499Z",
+    "stats": {
+      "characters": 0,
+      "scenes": 0,
+      "props": 0,
+      "imageCount": 3,
+      "textCount": 227
+    },
+    "lockingUser": null,
+    "automationStatus": "",
+    "lockTimeout": 0,
+    "updatedAt": 1780415125405,
+    "lastEditor": "admin"
+  }
+]

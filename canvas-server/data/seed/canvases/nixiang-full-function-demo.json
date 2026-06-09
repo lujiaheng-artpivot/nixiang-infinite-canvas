@@ -1,0 +1,221 @@
+{
+  "version": 2,
+  "nodes": [
+    {
+      "id": "api-node-hub",
+      "type": "text",
+      "x": 140,
+      "y": 120,
+      "width": 520,
+      "height": 260,
+      "title": "API 节点矩阵",
+      "content": "已接通本地 API：auth.php / projects.php / canvas.php / upload.php / user.php / workflow submit / task status / outputs / NanoBanana bridge。\\n\\n演示重点：不是绘画白板，而是完整产品能力链路。",
+      "zIndex": 17,
+      "creator": "admin",
+      "locked": false
+    },
+    {
+      "id": "image-generator",
+      "type": "image",
+      "x": 720,
+      "y": 120,
+      "width": 520,
+      "height": 360,
+      "content": "empty_generator",
+      "title": "图像生成器",
+      "zIndex": 11,
+      "creator": "admin",
+      "locked": false,
+      "imageGenState": {
+        "prompt": "赛博工作台中的 AI 导演控制台，紫色 UI 光效，高级产品渲染",
+        "model": "nano-banana",
+        "logs": [
+          "API bridge ready",
+          "参考图与文生图参数已接通",
+          "支持比例 / 风格 / 多模型对比"
+        ],
+        "params": {
+          "ratio": "16:9",
+          "gptSize": "1024x1024"
+        },
+        "refImage": "/uploads/demo/asset-result.svg",
+        "refImages": [
+          "/uploads/demo/asset-result.svg"
+        ],
+        "status": "idle",
+        "isComparisonMode": true,
+        "comparisonModels": [
+          "nano-banana",
+          "gpt-image-1"
+        ]
+      }
+    },
+    {
+      "id": "image-result",
+      "type": "image",
+      "x": 1290,
+      "y": 120,
+      "width": 420,
+      "height": 260,
+      "content": "/uploads/demo/image-result.svg",
+      "title": "图像输出示例",
+      "zIndex": 12,
+      "creator": "admin",
+      "locked": false
+    },
+    {
+      "id": "video-generator",
+      "type": "video",
+      "x": 720,
+      "y": 540,
+      "width": 520,
+      "height": 360,
+      "content": "empty_generator",
+      "title": "视频生成器",
+      "zIndex": 13,
+      "creator": "admin",
+      "locked": false,
+      "videoGenState": {
+        "prompt": "镜头推入拟像无限画布，展示工具栏、生成器和 AI 助手协同工作",
+        "model": "sora-2",
+        "logs": [
+          "文生视频 / 图生视频 / 首尾帧均已映射到 API 节点",
+          "时长、比例、音频参数可配置"
+        ],
+        "params": {
+          "duration": "8",
+          "resolution": "1080P",
+          "aspectRatio": "16:9",
+          "audio": true
+        },
+        "status": "idle",
+        "isComparisonMode": true,
+        "comparisonModels": [
+          "sora-2",
+          "veo3.1",
+          "doubao-seedance-1-0-lite-i2v-250428"
+        ]
+      }
+    },
+    {
+      "id": "video-result",
+      "type": "image",
+      "x": 1290,
+      "y": 520,
+      "width": 420,
+      "height": 260,
+      "content": "/uploads/demo/video-result.svg",
+      "title": "视频任务输出",
+      "zIndex": 14,
+      "creator": "admin",
+      "locked": false
+    },
+    {
+      "id": "audio-node",
+      "type": "text",
+      "x": 140,
+      "y": 430,
+      "width": 520,
+      "height": 220,
+      "title": "音频与声音节点",
+      "content": "声音克隆、音频上传、视频转音频、音画节奏同步。API action: comfy_submit / get_task_outputs。",
+      "zIndex": 15,
+      "creator": "admin",
+      "locked": false
+    },
+    {
+      "id": "spreadsheet-node",
+      "type": "spreadsheet",
+      "x": 140,
+      "y": 700,
+      "width": 520,
+      "height": 300,
+      "title": "分镜表 / 表格节点",
+      "content": "spreadsheet",
+      "data": [
+        [
+          "镜头号",
+          "功能",
+          "API 节点",
+          "状态"
+        ],
+        [
+          "01",
+          "图像生成",
+          "nanobanana bridge",
+          "ready"
+        ],
+        [
+          "02",
+          "视频生成",
+          "comfy_submit",
+          "ready"
+        ],
+        [
+          "03",
+          "资产库",
+          "get_agent_assets",
+          "ready"
+        ],
+        [
+          "04",
+          "生成日记",
+          "get_diaries",
+          "ready"
+        ]
+      ],
+      "zIndex": 16,
+      "creator": "admin",
+      "locked": false
+    }
+  ],
+  "connections": [
+    {
+      "id": "c-api-img",
+      "fromNode": "api-node-hub",
+      "fromSide": "right",
+      "toNode": "image-generator",
+      "toSide": "left"
+    },
+    {
+      "id": "c-img-out",
+      "fromNode": "image-generator",
+      "fromSide": "right",
+      "toNode": "image-result",
+      "toSide": "left"
+    },
+    {
+      "id": "c-api-video",
+      "fromNode": "api-node-hub",
+      "fromSide": "right",
+      "toNode": "video-generator",
+      "toSide": "left"
+    },
+    {
+      "id": "c-video-out",
+      "fromNode": "video-generator",
+      "fromSide": "right",
+      "toNode": "video-result",
+      "toSide": "left"
+    },
+    {
+      "id": "c-api-audio",
+      "fromNode": "api-node-hub",
+      "fromSide": "bottom",
+      "toNode": "audio-node",
+      "toSide": "top"
+    },
+    {
+      "id": "c-audio-sheet",
+      "fromNode": "audio-node",
+      "fromSide": "bottom",
+      "toNode": "spreadsheet-node",
+      "toSide": "top"
+    }
+  ],
+  "metadata": {
+    "lockingUser": null,
+    "automationStatus": "",
+    "lockTimeout": 0
+  }
+}

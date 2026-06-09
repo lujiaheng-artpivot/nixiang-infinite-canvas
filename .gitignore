@@ -1,0 +1,8 @@
+.pids/
+logs/
+canvas-server/data/runtime/
+canvas-server/data/**/private-config.json
+*.log
+*.pid
+.DS_Store
+Thumbs.db
