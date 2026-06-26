@@ -7,8 +7,8 @@ import { URL } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const rootDir = path.dirname(__filename);
 const canvasRoot = path.join(rootDir, 'public', 'canvas');
-const backendPort = Number(process.env.TUCHU_BACKEND_PORT || 4320);
-const frontendPort = Number(process.env.TUCHU_FRONTEND_PORT || 3000);
+const backendPort = Number(process.env.NIXIANG_BACKEND_PORT || 4320);
+const frontendPort = Number(process.env.NIXIANG_FRONTEND_PORT || 3000);
 
 const mime = {
   '.html': 'text/html; charset=utf-8',
@@ -34,7 +34,7 @@ function sendIndex(res) {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>拟像 无限画布</title>
+    <title>拟像：AI 视频与图像 Agent</title>
     <script src="/vendor/tailwindcss.js"></script>
     <style>
       html, body, #root {
@@ -48,50 +48,12 @@ function sendIndex(res) {
   </head>
   <body>
     <div id="root"></div>
-    <script src="/nanobanana-bridge.js"></script>
-    <script src="/nanobanana-session-fix.js"></script>
+    <script src="/api-config-panel.js"></script>
+    <script src="/ui-magic.js"></script>
+    <script src="/nixiang-session.js"></script>
+    <script src="/nixiang-bridge.js"></script>
+    <script src="/nixiang-privacy.js"></script>
     <script type="module" src="/assets/index-Cn4IK0Yz.js"></script>
-    <script>
-      (() => {
-        const brandName = '拟像 无限画布';
-        document.title = brandName;
-        const replacements = new Map([
-          ['OUTLIERS', brandName],
-          ['共创无限画布', 'AI WORKBENCH'],
-        ]);
-
-        const rewriteText = (root) => {
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-          const duplicateLabels = [];
-          while (walker.nextNode()) {
-            const node = walker.currentNode;
-            const value = node.nodeValue.trim();
-            if (value === 'Outliers') {
-              duplicateLabels.push(node.parentElement);
-              continue;
-            }
-            const next = replacements.get(value);
-            if (next) node.nodeValue = next;
-          }
-
-          for (const label of duplicateLabels) {
-            if (!label?.isConnected) continue;
-            if (label.tagName === 'H2') {
-              label.parentElement?.remove();
-            } else {
-              label.remove();
-            }
-          }
-        };
-
-        rewriteText(document.body);
-        new MutationObserver(() => rewriteText(document.body)).observe(document.body, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-        });
-      })();
-    </script>
   </body>
 </html>`);
 }
@@ -162,5 +124,5 @@ function serveStatic(req, res) {
 }
 
 http.createServer(serveStatic).listen(frontendPort, '0.0.0.0', () => {
-  console.log(`Nixiang Infinite Canvas ready at http://localhost:${frontendPort}`);
+  console.log(`拟像 canvas ready at http://localhost:${frontendPort}`);
 });

@@ -10,7 +10,9 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = __dirname; // canvas-server/ is now the project root
+const repoRoot = path.resolve(__dirname, '..');
 const publicRoot = path.resolve(__dirname, '..', 'public', 'canvas');
+const recordingsRoot = path.resolve(repoRoot, 'recordings');
 const seedRoot = path.join(projectRoot, 'data', 'seed');
 const seedCanvasesRoot = path.join(seedRoot, 'canvases');
 const seedUploadsRoot = path.join(seedRoot, 'uploads');
@@ -20,6 +22,17 @@ const runtimeUploadsRoot = path.join(runtimeRoot, 'uploads');
 const privateConfigPath = path.join(runtimeRoot, 'private-config.json');
 const port = Number(process.env.PORT || 4320);
 const execFileAsync = promisify(execFile);
+const defaultNanoBananaApiUrl = '';
+const clientApiUrlHeader = 'x-nixiang-api-url';
+const clientApiKeyHeader = 'x-nixiang-api-key';
+const imageApiKeyHeader = 'x-nixiang-image-api-key';
+const imageApiUrlHeader = 'x-nixiang-image-api-url';
+const defaultImageApiBaseUrl = 'https://api.openai.com/v1';
+const localUserId = 'local-user';
+const localRelayId = 'local-relay';
+const localSessionToken = 'local-nixiang-session';
+const localProxyKey = 'local-nixiang-proxy';
+const localCredits = 1000;
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -39,6 +52,41 @@ const contentTypes = {
   '.webp': 'image/webp',
 };
 
+function sendCanvasIndex(res) {
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-cache',
+    'access-control-allow-origin': '*',
+  });
+  res.end(`<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>拟像：AI 视频与图像 Agent</title>
+    <script src="/vendor/tailwindcss.js"></script>
+    <style>
+      html, body, #root {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: #04060e;
+      }
+      * { box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/api-config-panel.js"></script>
+    <script src="/ui-magic.js"></script>
+    <script src="/nixiang-session.js"></script>
+    <script src="/nixiang-bridge.js"></script>
+    <script src="/nixiang-privacy.js"></script>
+    <script type="module" src="/assets/index-Cn4IK0Yz.js"></script>
+  </body>
+</html>`);
+}
+
 function now() {
   return Date.now();
 }
@@ -53,13 +101,13 @@ function randomId(length = 12) {
 
 function createDefaultUser() {
   return {
-    id: 'local-admin',
-    relayId: 'local-relay',
-    username: 'admin',
-    password: 'admin123',
-    token: `local-local-admin-${randomId(16)}`,
-    aiApiKey: 'local-nanobanana-proxy',
-    comfyBalance: 1000,
+    id: localUserId,
+    relayId: localRelayId,
+    username: '拟像用户',
+    password: 'nixiang-local',
+    token: localSessionToken,
+    aiApiKey: localProxyKey,
+    credits: localCredits,
   };
 }
 
@@ -221,10 +269,14 @@ async function loadState() {
     workflowTasks: (await readJson(path.join(runtimeRoot, 'workflow-tasks.json'), [])) || [],
   };
 
-  state.users = state.users.map((user) => ({
-    ...user,
-    aiApiKey: user?.aiApiKey || 'local-nanobanana-proxy',
-  }));
+  state.users = state.users.length
+    ? state.users.map((user) => normalizeRuntimeUser(user))
+    : [createDefaultUser()];
+  if (!state.users.some((user) => user.id === localUserId)) {
+    state.users.unshift(createDefaultUser());
+  }
+
+  state.projects = state.projects.map((project) => normalizeRuntimeProject(project));
 
   return state;
 }
@@ -253,24 +305,146 @@ async function writeCanvas(projectId, canvas) {
   await writeJson(path.join(runtimeCanvasesRoot, `${projectId}.json`), canvas);
 }
 
+function createEmptyCanvas() {
+  return {
+    version: 1,
+    nodes: [],
+    connections: [],
+    metadata: {
+      lockingUser: null,
+      automationStatus: '',
+      lockTimeout: 0,
+    },
+  };
+}
+
+async function ensureCanvas(projectId) {
+  const existing = await readCanvas(projectId);
+  if (existing) return existing;
+
+  const canvas = createEmptyCanvas();
+  await writeCanvas(projectId, canvas);
+  return canvas;
+}
+
+function normalizeLegacyUserId(userId = '') {
+  return userId === 'local-admin' ? localUserId : userId;
+}
+
+function normalizeProjectId(projectId = '') {
+  return projectId === 'auto-canvas-local-admin' ? `auto-canvas-${localUserId}` : projectId;
+}
+
+function decodedRegex(encoded, flags = 'gi') {
+  return new RegExp(Buffer.from(encoded, 'base64').toString('utf8'), flags);
+}
+
+function sanitizePublicString(value = '') {
+  return String(value)
+    .replace(decodedRegex('TmFub1xzKkJhbmFuYQ=='), '拟像模型')
+    .replace(decodedRegex('bmFub2JhbmFuYQ=='), 'nixiang-model')
+    .replace(decodedRegex('Q29tZnk='), '创作')
+    .replace(decodedRegex('Y29tZnlfc3VibWl0', 'g'), 'workflow_submit')
+    .replace(decodedRegex('T1VUTElFUlN8T3V0bGllcnN8Wm9waWE='), '拟像')
+    .replace(decodedRegex('YWRtaW4xMjM=', 'g'), 'nixiang-local')
+    .replace(decodedRegex('XGJhZG1pblxi'), '拟像')
+    .replace(decodedRegex('Q29kZXg='), '拟像')
+    .replace(decodedRegex('U3l0Y2h8U3R5dGNo'), '拟像');
+}
+
+function sanitizeProjectForResponse(project) {
+  return {
+    ...project,
+    name: sanitizePublicString(project?.name || '拟像画布'),
+    description: sanitizePublicString(project?.description || ''),
+    lastEditor: sanitizePublicString(project?.lastEditor || '拟像'),
+  };
+}
+
+function sanitizeCanvasForResponse(canvas) {
+  const walk = (value, key = '') => {
+    if (typeof value === 'string') {
+      if (['id', 'fromNode', 'toNode', 'content', 'refImage'].includes(key) && value.startsWith('/uploads/')) {
+        return value;
+      }
+      if (['id', 'fromNode', 'toNode', 'taskId', 'userId'].includes(key)) {
+        return value;
+      }
+      return sanitizePublicString(value);
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => walk(item, key));
+    }
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([entryKey, entryValue]) => [entryKey, walk(entryValue, entryKey)]),
+      );
+    }
+    return value;
+  };
+
+  return walk(canvas);
+}
+
+function normalizeRuntimeUser(user = {}) {
+  const { comfyBalance, ...rest } = user;
+  const credits = user.credits ?? comfyBalance ?? localCredits;
+  const isLegacyLocalUser =
+    user.id === 'local-admin' ||
+    user.username === 'admin' ||
+    user.password === 'admin123' ||
+    user.token?.includes('local-admin');
+
+  if (isLegacyLocalUser || user.id === localUserId) {
+    return {
+      ...rest,
+      id: localUserId,
+      relayId: localRelayId,
+      username: '拟像用户',
+      password: 'nixiang-local',
+      token: localSessionToken,
+      aiApiKey: localProxyKey,
+      credits,
+    };
+  }
+
+  return {
+    ...rest,
+    aiApiKey: user?.aiApiKey || localProxyKey,
+    credits,
+  };
+}
+
+function normalizeRuntimeProject(project = {}) {
+  const id = normalizeProjectId(project.id);
+  return {
+    ...project,
+    id,
+    name: sanitizePublicString(project.name || (id?.startsWith('auto-canvas-') ? '拟像画布' : '拟像项目')),
+    description: sanitizePublicString(project.description || ''),
+    lastEditor: sanitizePublicString(project.lastEditor || '拟像'),
+  };
+}
+
 function normalizeUserForResponse(user) {
   return {
     id: user.id,
     relayId: user.relayId || `${user.id}-relay`,
-    username: user.username,
+    username: sanitizePublicString(user.username || '拟像用户'),
     token: user.token,
-    aiApiKey: user.aiApiKey || 'local-nanobanana-proxy',
-    comfyBalance: user.comfyBalance ?? 1000,
+    aiApiKey: user.aiApiKey || localProxyKey,
+    credits: user.credits ?? localCredits,
   };
 }
 
 function findUserByToken(state, userId, token) {
+  const normalizedUserId = normalizeLegacyUserId(userId);
   const exactMatch =
-    state.users.find((user) => user.id === userId && user.token === token) || null;
+    state.users.find((user) => user.id === normalizedUserId && user.token === token) || null;
   if (exactMatch) return exactMatch;
 
   // Local offline mode should not kick the same user out across tabs or after restarts.
-  return state.users.find((user) => user.id === userId) || null;
+  return state.users.find((user) => user.id === normalizedUserId) || null;
 }
 
 function updateProjectDerivedFields(state, projectId, partialUpdates = {}) {
@@ -290,7 +464,7 @@ function sendJson(res, statusCode, data) {
     'content-type': 'application/json; charset=utf-8',
     'access-control-allow-origin': '*',
     'access-control-allow-methods': 'GET, POST, OPTIONS, PUT, DELETE',
-    'access-control-allow-headers': 'Content-Type, Authorization, X-Requested-With',
+    'access-control-allow-headers': `Content-Type, Authorization, X-Requested-With, ${clientApiUrlHeader}, ${clientApiKeyHeader}, ${imageApiUrlHeader}, ${imageApiKeyHeader}`,
   });
   res.end(JSON.stringify(data));
 }
@@ -662,8 +836,15 @@ async function maybeRunNanoBananaEdit(config, workflowId, sourceUrl, prompt) {
     return '';
   }
 
-  const apiKey = getNanoBananaApiKey(config);
-  if (!apiKey) {
+  let nanoBananaConfig;
+  try {
+    nanoBananaConfig = getNanoBananaRuntimeConfig(config);
+  } catch (error) {
+    log(`Image API config skipped: ${error?.message || 'invalid API URL'}`);
+    return '';
+  }
+
+  if (!nanoBananaConfig.apiKey && !nanoBananaConfig.hasCustomApiUrl) {
     return '';
   }
 
@@ -684,8 +865,8 @@ async function maybeRunNanoBananaEdit(config, workflowId, sourceUrl, prompt) {
   }
 
   const created = await fetchNanoBananaJson(
-    apiKey,
-    'https://api.nanobananaapi.ai/api/v1/nanobanana/generate',
+    nanoBananaConfig,
+    nanoBananaConfig.generateUrl,
     {
       method: 'POST',
       headers: {
@@ -697,7 +878,7 @@ async function maybeRunNanoBananaEdit(config, workflowId, sourceUrl, prompt) {
         numImages: 1,
         image_size: '1:1',
         imageUrls: [sourceUrl],
-        callBackUrl: 'https://example.com/nanobanana-callback',
+        callBackUrl: 'https://example.com/nixiang-callback',
       }),
     },
   );
@@ -707,7 +888,7 @@ async function maybeRunNanoBananaEdit(config, workflowId, sourceUrl, prompt) {
     return '';
   }
 
-  const task = await waitForNanoBananaResult(apiKey, taskId);
+  const task = await waitForNanoBananaResult(nanoBananaConfig, taskId);
   return task?.response?.resultImageUrl || '';
 }
 
@@ -723,7 +904,7 @@ async function buildWorkflowOutputs(task, config) {
   const maybeNanoOutput =
     sourceImageRef &&
     (await maybeRunNanoBananaEdit(config, task.workflowId, sourceImageRef, prompt).catch((error) => {
-      log(`NanoBanana edit fallback skipped for ${task.workflowId}: ${error?.message || 'unknown error'}`);
+      log(`Image edit fallback skipped for ${task.workflowId}: ${error?.message || 'unknown error'}`);
       return '';
     }));
 
@@ -843,7 +1024,7 @@ function updateTaskDiary(state, task, patch) {
   };
 }
 
-async function runWorkflowTask(state, taskId) {
+async function runWorkflowTask(state, taskId, requestNanoBananaConfig = {}) {
   const task = state.workflowTasks.find((entry) => entry.taskId === taskId);
   if (!task) return;
 
@@ -854,7 +1035,7 @@ async function runWorkflowTask(state, taskId) {
   const startedAt = task.startedAt || now();
 
   try {
-    const config = await loadPrivateConfig();
+    const config = mergeNanoBananaConfig(await loadPrivateConfig(), requestNanoBananaConfig);
     const outputs = await buildWorkflowOutputs(task, config);
     if (!outputs.length) {
       throw new Error('任务未生成任何输出');
@@ -899,10 +1080,192 @@ function getNanoBananaApiKey(config) {
   if (typeof fromRuntime === 'string' && fromRuntime.trim()) {
     return fromRuntime.trim();
   }
-  if (typeof process.env.NANOBANANA_API_KEY === 'string' && process.env.NANOBANANA_API_KEY.trim()) {
-    return process.env.NANOBANANA_API_KEY.trim();
+  const envApiKey = process.env.NIXIANG_MODEL_API_KEY || process.env.NANOBANANA_API_KEY;
+  if (typeof envApiKey === 'string' && envApiKey.trim()) {
+    return envApiKey.trim();
   }
   return '';
+}
+
+function getNanoBananaApiUrl(config) {
+  const fromRuntime =
+    config?.nanobanana?.apiUrl ||
+    config?.nanobanana?.apiBaseUrl ||
+    config?.nanobanana?.baseUrl;
+  if (typeof fromRuntime === 'string' && fromRuntime.trim()) {
+    return fromRuntime.trim();
+  }
+  const fromEnv =
+    process.env.NIXIANG_MODEL_API_URL ||
+    process.env.NIXIANG_MODEL_API_BASE_URL ||
+    process.env.NANOBANANA_API_URL ||
+    process.env.NANOBANANA_API_BASE_URL;
+  if (typeof fromEnv === 'string' && fromEnv.trim()) {
+    return fromEnv.trim();
+  }
+  return defaultNanoBananaApiUrl;
+}
+
+function getHeaderValue(req, name) {
+  const value = req.headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0] || '';
+  return typeof value === 'string' ? value : '';
+}
+
+function readClientNanoBananaConfig(req) {
+  const apiUrl = getHeaderValue(req, clientApiUrlHeader).trim();
+  const apiKey = getHeaderValue(req, clientApiKeyHeader).trim();
+  const nanobanana = {};
+  if (apiUrl) nanobanana.apiUrl = apiUrl;
+  if (apiKey) nanobanana.apiKey = apiKey;
+  return Object.keys(nanobanana).length ? { nanobanana } : {};
+}
+
+function mergeNanoBananaConfig(baseConfig = {}, overrideConfig = {}) {
+  const baseNano = baseConfig?.nanobanana || {};
+  const overrideNano = overrideConfig?.nanobanana || {};
+  const nanobanana = { ...baseNano };
+
+  for (const key of ['apiKey', 'apiUrl', 'apiBaseUrl', 'baseUrl']) {
+    if (typeof overrideNano[key] === 'string' && overrideNano[key].trim()) {
+      nanobanana[key] = overrideNano[key].trim();
+    }
+  }
+
+  return {
+    ...baseConfig,
+    nanobanana,
+  };
+}
+
+function isBlockedApiHost(hostname) {
+  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (
+    !host ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host === '0.0.0.0' ||
+    host === '::' ||
+    host === '::1'
+  ) {
+    return true;
+  }
+
+  const parts = host.split('.').map((part) => Number(part));
+  if (parts.length === 4 && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+    const [first, second] = parts;
+    return (
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168)
+    );
+  }
+
+  return false;
+}
+
+function assertPublicHttpApiUrl(apiUrl) {
+  const parsed = new URL(apiUrl);
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('API URL must use http or https.');
+  }
+  if (isBlockedApiHost(parsed.hostname)) {
+    throw new Error('API URL cannot point to localhost or a private network address.');
+  }
+  return parsed;
+}
+
+function buildNanoBananaEndpointUrls(apiUrl) {
+  const parsed = assertPublicHttpApiUrl(apiUrl);
+  const pathname = parsed.pathname.replace(/\/+$/, '');
+  const generateUrl = new URL(parsed.href);
+  const recordInfoUrl = new URL(parsed.href);
+
+  if (/\/generate$/i.test(pathname)) {
+    generateUrl.pathname = pathname;
+    recordInfoUrl.pathname = pathname.replace(/\/generate$/i, '/record-info');
+  } else if (/\/record-info$/i.test(pathname)) {
+    recordInfoUrl.pathname = pathname;
+    generateUrl.pathname = pathname.replace(/\/record-info$/i, '/generate');
+  } else {
+    const basePath = pathname && pathname !== '/' ? pathname : '/api/v1/images';
+    generateUrl.pathname = `${basePath}/generate`;
+    recordInfoUrl.pathname = `${basePath}/record-info`;
+  }
+
+  generateUrl.search = '';
+  recordInfoUrl.search = '';
+
+  return {
+    generateUrl: generateUrl.toString(),
+    recordInfoUrl: recordInfoUrl.toString(),
+  };
+}
+
+function getNanoBananaRuntimeConfig(config = {}) {
+  const apiUrl = getNanoBananaApiUrl(config);
+  const apiKey = getNanoBananaApiKey(config);
+  const hasExplicitApiUrl = Boolean(
+    config?.nanobanana?.apiUrl ||
+      config?.nanobanana?.apiBaseUrl ||
+      config?.nanobanana?.baseUrl ||
+      process.env.NIXIANG_MODEL_API_URL ||
+      process.env.NIXIANG_MODEL_API_BASE_URL ||
+      process.env.NANOBANANA_API_URL ||
+      process.env.NANOBANANA_API_BASE_URL,
+  );
+  if (!apiUrl) {
+    return {
+      apiKey,
+      apiUrl: '',
+      hasCustomApiUrl: false,
+      generateUrl: '',
+      recordInfoUrl: '',
+    };
+  }
+
+  const endpoints = buildNanoBananaEndpointUrls(apiUrl);
+  return {
+    apiKey,
+    apiUrl,
+    hasCustomApiUrl: hasExplicitApiUrl || apiUrl !== defaultNanoBananaApiUrl,
+    ...endpoints,
+  };
+}
+
+function isNanoBananaConfigured(config = {}) {
+  try {
+    const runtimeConfig = getNanoBananaRuntimeConfig(config);
+    return Boolean(runtimeConfig.apiKey || runtimeConfig.hasCustomApiUrl);
+  } catch {
+    return false;
+  }
+}
+
+function getPublicNanoBananaStatus(config = {}) {
+  try {
+    const runtimeConfig = getNanoBananaRuntimeConfig(config);
+    return {
+      configured: Boolean(runtimeConfig.apiKey || runtimeConfig.hasCustomApiUrl),
+      valid: true,
+    };
+  } catch (error) {
+    return {
+      configured: false,
+      valid: false,
+      message: error?.message || 'Invalid API URL.',
+    };
+  }
+}
+
+function buildRecordInfoRequestUrl(recordInfoUrl, taskId) {
+  const url = new URL(recordInfoUrl);
+  url.searchParams.set('taskId', taskId);
+  return url.toString();
 }
 
 function clamp(value, min, max) {
@@ -946,13 +1309,17 @@ function collectNanoBananaImageUrls(body) {
   return [...new Set(candidates.filter((item) => typeof item === 'string' && item.trim()))];
 }
 
-async function fetchNanoBananaJson(apiKey, input, init = {}) {
+async function fetchNanoBananaJson(nanoBananaConfig, input, init = {}) {
+  const headers = {
+    ...(init.headers || {}),
+  };
+  if (nanoBananaConfig.apiKey) {
+    headers.Authorization = `Bearer ${nanoBananaConfig.apiKey}`;
+  }
+
   const response = await fetch(input, {
     ...init,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      ...(init.headers || {}),
-    },
+    headers,
   });
 
   let payload = null;
@@ -963,20 +1330,20 @@ async function fetchNanoBananaJson(apiKey, input, init = {}) {
   }
 
   if (!response.ok || !payload || payload.code !== 200) {
-    const message = payload?.msg || payload?.message || `NanoBanana upstream error (${response.status})`;
+    const message = payload?.msg || payload?.message || `Image API upstream error (${response.status})`;
     throw new Error(message);
   }
 
   return payload;
 }
 
-async function waitForNanoBananaResult(apiKey, taskId, timeoutMs = 180000) {
+async function waitForNanoBananaResult(nanoBananaConfig, taskId, timeoutMs = 180000) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
     const status = await fetchNanoBananaJson(
-      apiKey,
-      `https://api.nanobananaapi.ai/api/v1/nanobanana/record-info?taskId=${encodeURIComponent(taskId)}`,
+      nanoBananaConfig,
+      buildRecordInfoRequestUrl(nanoBananaConfig.recordInfoUrl, taskId),
       { method: 'GET' },
     );
     const task = status?.data || {};
@@ -985,13 +1352,285 @@ async function waitForNanoBananaResult(apiKey, taskId, timeoutMs = 180000) {
       return task;
     }
     if (task.successFlag === 2 || task.successFlag === 3) {
-      throw new Error(task.errorMessage || 'NanoBanana generation failed');
+      throw new Error(task.errorMessage || 'Image generation failed');
     }
 
     await sleep(3000);
   }
 
-  throw new Error('NanoBanana generation timed out');
+  throw new Error('Image generation timed out');
+}
+
+function getImageApiKey(req) {
+  const fromHeader = getHeaderValue(req, imageApiKeyHeader) || getHeaderValue(req, clientApiKeyHeader);
+  if (fromHeader.trim()) return fromHeader.trim().replace(/^Bearer\s+/i, '');
+
+  const fromEnv =
+    process.env.NIXIANG_IMAGE_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    process.env.NIXIANG_MODEL_API_KEY;
+  return typeof fromEnv === 'string' ? fromEnv.trim().replace(/^Bearer\s+/i, '') : '';
+}
+
+function getImageApiBaseUrl(req) {
+  const fromHeader = getHeaderValue(req, imageApiUrlHeader);
+  if (fromHeader.trim()) return fromHeader.trim().replace(/\/+$/, '');
+
+  const fromEnv =
+    process.env.NIXIANG_IMAGE_API_URL ||
+    process.env.OPENAI_BASE_URL ||
+    process.env.NIXIANG_MODEL_API_URL;
+  return (typeof fromEnv === 'string' && fromEnv.trim() ? fromEnv.trim() : defaultImageApiBaseUrl).replace(
+    /\/+$/,
+    '',
+  );
+}
+
+function getImageApiRuntimeConfig(req) {
+  const apiKey = getImageApiKey(req);
+  const apiBaseUrl = getImageApiBaseUrl(req);
+  assertPublicHttpApiUrl(apiBaseUrl);
+  return { apiKey, apiBaseUrl };
+}
+
+function buildImageApiUrl(apiBaseUrl, pathname) {
+  const base = new URL(apiBaseUrl);
+  const basePath = base.pathname.replace(/\/+$/, '');
+  base.pathname = `${basePath}${pathname}`;
+  base.search = '';
+  return base.toString();
+}
+
+function normalizeOpenAIImageSize(input = '') {
+  const value = String(input || '').trim();
+  if (/^\d+x\d+$/i.test(value) || value === 'auto') return value;
+  const map = {
+    '1:1': '1024x1024',
+    '3:4': '1024x1536',
+    '4:3': '1536x1024',
+    '9:16': '1024x1536',
+    '16:9': '1536x1024',
+  };
+  return map[value] || '1024x1024';
+}
+
+function imageOutputExtension(outputFormat = '') {
+  const value = String(outputFormat || '').toLowerCase();
+  if (value.includes('webp')) return '.webp';
+  if (value.includes('jpeg') || value.includes('jpg')) return '.jpg';
+  return '.png';
+}
+
+function imageMimeTypeFromPath(filePath = '') {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.svg') return 'image/svg+xml';
+  return 'image/png';
+}
+
+function parseDataUrl(dataUrl = '') {
+  const match = String(dataUrl).match(/^data:([^;,]+)?(?:;base64)?,(.+)$/);
+  if (!match) return null;
+  const mimeType = match[1] || 'application/octet-stream';
+  const body = match[2] || '';
+  const buffer = dataUrl.includes(';base64,')
+    ? Buffer.from(body, 'base64')
+    : Buffer.from(decodeURIComponent(body), 'utf8');
+  return { buffer, mimeType };
+}
+
+async function readImageInput(ref = '', fallbackName = 'image.png') {
+  const value = String(ref || '').trim();
+  if (!value) return null;
+
+  if (value.startsWith('data:')) {
+    const parsed = parseDataUrl(value);
+    if (!parsed) return null;
+    return {
+      blob: new Blob([parsed.buffer], { type: parsed.mimeType }),
+      filename: fallbackName,
+    };
+  }
+
+  const localPath = resolveLocalUploadPath(value);
+  if (localPath && (await exists(localPath))) {
+    const buffer = await fs.readFile(localPath);
+    return {
+      blob: new Blob([buffer], { type: imageMimeTypeFromPath(localPath) }),
+      filename: path.basename(localPath) || fallbackName,
+    };
+  }
+
+  if (/^https?:\/\//i.test(value)) {
+    const parsed = assertPublicHttpApiUrl(value);
+    const response = await fetch(parsed);
+    if (!response.ok) {
+      throw new Error(`参考图下载失败 (${response.status})`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    return {
+      blob: new Blob([buffer], {
+        type: response.headers.get('content-type') || imageMimeTypeFromPath(parsed.pathname),
+      }),
+      filename: path.basename(parsed.pathname) || fallbackName,
+    };
+  }
+
+  return null;
+}
+
+function collectImageApiInputs(body = {}) {
+  const inputs = [];
+  for (const value of [
+    body.image,
+    body.image_url,
+    body.input_image,
+    body.reference_image,
+    body.refImage,
+  ]) {
+    if (typeof value === 'string') inputs.push(value);
+    if (Array.isArray(value)) inputs.push(...value.filter((item) => typeof item === 'string'));
+  }
+  if (Array.isArray(body.images)) {
+    inputs.push(...body.images.filter((item) => typeof item === 'string'));
+  }
+  if (Array.isArray(body.imageUrls)) {
+    inputs.push(...body.imageUrls.filter((item) => typeof item === 'string'));
+  }
+  if (Array.isArray(body.image_urls)) {
+    inputs.push(...body.image_urls.filter((item) => typeof item === 'string'));
+  }
+  return [...new Set(inputs.filter(Boolean))];
+}
+
+function buildImageApiJsonBody(body = {}) {
+  const prompt = String(body.prompt || body.text || '').trim();
+  const outputFormat = body.output_format || body.format || 'png';
+  const requestBody = {
+    model: body.model || process.env.NIXIANG_IMAGE_MODEL || 'gpt-image-2',
+    prompt,
+    n: clamp(Number(body.n || body.numImages || 1) || 1, 1, 4),
+    size: normalizeOpenAIImageSize(body.size || body.image_size || body.aspect_ratio),
+    quality: body.quality || 'auto',
+    background: body.background || 'auto',
+    output_format: outputFormat,
+  };
+
+  for (const key of ['moderation', 'style', 'user']) {
+    if (body[key] != null) requestBody[key] = body[key];
+  }
+  if (body.output_compression != null) {
+    requestBody.output_compression = body.output_compression;
+  }
+  return requestBody;
+}
+
+async function persistImageApiResult(item, index, outputFormat = 'png') {
+  if (item?.url) return { ...item, url: item.url };
+  if (!item?.b64_json) return item;
+
+  const extension = imageOutputExtension(outputFormat);
+  const filename = `${Date.now()}-codex-image-${index}-${randomId(6)}${extension}`;
+  const relativePath = path.join('generated', filename);
+  const targetPath = path.join(runtimeUploadsRoot, relativePath);
+  await ensureDir(path.dirname(targetPath));
+  await fs.writeFile(targetPath, Buffer.from(item.b64_json, 'base64'));
+
+  const { b64_json: _b64Json, ...rest } = item;
+  return {
+    ...rest,
+    url: `/uploads/${relativePath}`,
+  };
+}
+
+async function fetchImageApiJson(config, endpointPath, init = {}) {
+  if (!config.apiKey) {
+    throw new Error('图像 API Key 尚未配置。请在 API 面板填写 Key，或设置 NIXIANG_IMAGE_API_KEY。');
+  }
+
+  const response = await fetch(buildImageApiUrl(config.apiBaseUrl, endpointPath), {
+    ...init,
+    headers: {
+      ...(init.headers || {}),
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = payload?.error?.message || payload?.message || `图像 API 请求失败 (${response.status})`;
+    throw new Error(message);
+  }
+  return payload;
+}
+
+async function handleCodexImageBridge(req, res) {
+  let config;
+  try {
+    config = getImageApiRuntimeConfig(req);
+  } catch (error) {
+    sendJson(res, 400, { error: { message: error?.message || '图像 API URL 无效。' } });
+    return;
+  }
+
+  const body = await parseJsonBody(req);
+  const prompt = String(body.prompt || body.text || '').trim();
+  if (!prompt) {
+    sendJson(res, 400, { error: { message: '缺少生成提示词。' } });
+    return;
+  }
+
+  const outputFormat = body.output_format || body.format || 'png';
+  const imageInputs = collectImageApiInputs(body);
+
+  try {
+    let payload;
+    if (imageInputs.length || body.mask) {
+      const form = new FormData();
+      const requestBody = buildImageApiJsonBody(body);
+      for (const [key, value] of Object.entries(requestBody)) {
+        if (value != null && value !== '') form.append(key, String(value));
+      }
+
+      const loadedImages = await Promise.all(
+        imageInputs.map((input, index) => readImageInput(input, `image-${index + 1}.png`)),
+      );
+      for (const [index, input] of loadedImages.filter(Boolean).entries()) {
+        form.append('image[]', input.blob, input.filename || `image-${index + 1}.png`);
+      }
+      if (body.mask) {
+        const mask = await readImageInput(body.mask, 'mask.png');
+        if (mask) form.append('mask', mask.blob, mask.filename || 'mask.png');
+      }
+
+      payload = await fetchImageApiJson(config, '/images/edits', {
+        method: 'POST',
+        body: form,
+      });
+    } else {
+      payload = await fetchImageApiJson(config, '/images/generations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildImageApiJsonBody(body)),
+      });
+    }
+
+    const data = Array.isArray(payload?.data)
+      ? await Promise.all(payload.data.map((item, index) => persistImageApiResult(item, index, outputFormat)))
+      : [];
+
+    sendJson(res, 200, {
+      created: payload?.created || Math.floor(Date.now() / 1000),
+      data,
+    });
+  } catch (error) {
+    sendJson(res, error?.message?.includes('API Key') ? 503 : 502, {
+      error: {
+        message: error?.message || '图像 API 桥接失败',
+      },
+    });
+  }
 }
 
 async function handleAuth(state, body, res) {
@@ -1007,13 +1646,16 @@ async function handleAuth(state, body, res) {
 
   const username = String(body.username || '').trim();
   const password = String(body.password || '').trim();
+  const legacyLocalLogin = username === 'admin' && password === 'admin123';
 
   if (!username || password.length < 6) {
     sendJson(res, 200, { success: false, message: '用户名或密码无效' });
     return;
   }
 
-  let user = state.users.find((item) => item.username === username) || null;
+  let user = legacyLocalLogin
+    ? state.users.find((item) => item.id === localUserId) || null
+    : state.users.find((item) => item.username === username) || null;
   if (!user) {
     user = {
       id: randomId(12),
@@ -1021,11 +1663,11 @@ async function handleAuth(state, body, res) {
       username,
       password,
       token: `local-${username}-${randomId(16)}`,
-      aiApiKey: 'local-nanobanana-proxy',
-      comfyBalance: 1000,
+      aiApiKey: localProxyKey,
+      credits: localCredits,
     };
     state.users.push(user);
-  } else if (user.password !== password) {
+  } else if (!legacyLocalLogin && user.password !== password) {
     sendJson(res, 200, { success: false, message: '密码错误' });
     return;
   }
@@ -1037,28 +1679,36 @@ async function handleAuth(state, body, res) {
 
 async function handleProjects(state, req, res) {
   if (req.method === 'GET') {
-    sendJson(res, 200, state.projects);
+    sendJson(res, 200, state.projects.map((project) => sanitizeProjectForResponse(project)));
     return;
   }
 
   const body = await parseJsonBody(req);
   if (body.action === 'create' && body.project) {
-    state.projects = [body.project, ...state.projects.filter((item) => item.id !== body.project.id)];
+    const project = normalizeRuntimeProject({
+      ...body.project,
+      name: body.project.name || '拟像画布',
+      description: body.project.description || '',
+      lastEditor: body.project.lastEditor || '拟像',
+    });
+    state.projects = [project, ...state.projects.filter((item) => item.id !== project.id)];
+    await ensureCanvas(project.id);
     await saveState(state);
-    sendJson(res, 200, { success: true, project: body.project });
+    sendJson(res, 200, { success: true, project: sanitizeProjectForResponse(project) });
     return;
   }
 
   if (body.action === 'update' && body.projectId) {
-    updateProjectDerivedFields(state, body.projectId, body.updates || {});
+    updateProjectDerivedFields(state, normalizeProjectId(body.projectId), body.updates || {});
     await saveState(state);
     sendJson(res, 200, { success: true });
     return;
   }
 
   if (body.action === 'delete' && body.id) {
-    state.projects = state.projects.filter((item) => item.id !== body.id);
-    await fs.rm(path.join(runtimeCanvasesRoot, `${body.id}.json`), { force: true });
+    const projectId = normalizeProjectId(body.id);
+    state.projects = state.projects.filter((item) => item.id !== projectId);
+    await fs.rm(path.join(runtimeCanvasesRoot, `${projectId}.json`), { force: true });
     await saveState(state);
     sendJson(res, 200, { success: true });
     return;
@@ -1069,33 +1719,34 @@ async function handleProjects(state, req, res) {
 
 async function handleCanvas(state, req, res, url) {
   if (req.method === 'GET') {
-    const projectId = url.searchParams.get('projectId');
-    const canvas = projectId ? await readCanvas(projectId) : null;
+    const rawProjectId = url.searchParams.get('projectId');
+    const projectId = normalizeProjectId(rawProjectId);
+    if (!projectId) {
+      sendJson(res, 400, { success: false, message: 'Missing projectId' });
+      return;
+    }
+
+    const knownProject = state.projects.some((project) => project.id === projectId);
+    const canvas =
+      knownProject || projectId.startsWith('auto-canvas-')
+        ? await ensureCanvas(projectId)
+        : await readCanvas(projectId);
     if (!canvas) {
       sendJson(res, 404, { success: false, message: 'Canvas not found' });
       return;
     }
-    sendJson(res, 200, canvas);
+    sendJson(res, 200, sanitizeCanvasForResponse(canvas));
     return;
   }
 
   const body = await parseJsonBody(req);
-  const projectId = body.projectId;
+  const projectId = normalizeProjectId(body.projectId);
   if (!projectId) {
     sendJson(res, 400, { success: false, message: 'Missing projectId' });
     return;
   }
 
-  const existing = (await readCanvas(projectId)) || {
-    version: 0,
-    nodes: [],
-    connections: [],
-    metadata: {
-      lockingUser: null,
-      automationStatus: '',
-      lockTimeout: 0,
-    },
-  };
+  const existing = (await readCanvas(projectId)) || createEmptyCanvas();
 
   if (typeof body.baseVersion === 'number' && existing.version !== body.baseVersion) {
     sendJson(res, 409, { success: false, message: 'Version conflict', serverData: existing });
@@ -1127,10 +1778,12 @@ async function handleCanvas(state, req, res, url) {
 }
 
 function walletDataForUser(user) {
+  const credits = user?.credits ?? localCredits;
   return {
-    balance: user?.comfyBalance ?? 1000,
-    comfyBalance: user?.comfyBalance ?? 1000,
-    availableBalance: user?.comfyBalance ?? 1000,
+    balance: credits,
+    credits,
+    paint: credits,
+    availableBalance: credits,
     totalSpent: 0,
     totalRecharged: 0,
   };
@@ -1157,12 +1810,25 @@ async function handleUpload(req, res) {
 }
 
 async function handleNanoBananaImageBridge(req, res) {
-  const config = await loadPrivateConfig();
-  const apiKey = getNanoBananaApiKey(config);
-  if (!apiKey) {
+  const serverConfig = await loadPrivateConfig();
+  const config = mergeNanoBananaConfig(serverConfig, readClientNanoBananaConfig(req));
+  let nanoBananaConfig;
+
+  try {
+    nanoBananaConfig = getNanoBananaRuntimeConfig(config);
+  } catch (error) {
+    sendJson(res, 400, {
+      error: {
+        message: error?.message || '模型接口 URL 无效。',
+      },
+    });
+    return;
+  }
+
+  if (!nanoBananaConfig.apiKey && !nanoBananaConfig.hasCustomApiUrl) {
     sendJson(res, 503, {
       error: {
-        message: 'NanoBanana API key is not configured on the local server.',
+        message: '模型接口尚未配置。请在 API 面板里填写 API URL 或 API Key。',
       },
     });
     return;
@@ -1173,7 +1839,7 @@ async function handleNanoBananaImageBridge(req, res) {
   if (!prompt) {
     sendJson(res, 400, {
       error: {
-        message: 'Missing prompt for NanoBanana image generation.',
+        message: '缺少生成提示词。',
       },
     });
     return;
@@ -1193,7 +1859,7 @@ async function handleNanoBananaImageBridge(req, res) {
     sendJson(res, 400, {
       error: {
         message:
-          'The local NanoBanana bridge currently supports text-to-image. Local upload URLs and data URLs are not publicly reachable by the NanoBanana API yet.',
+          '当前本地桥接暂不支持把本地上传文件直接作为远程参考图，请先使用公开可访问的图片 URL。',
       },
     });
     return;
@@ -1204,7 +1870,7 @@ async function handleNanoBananaImageBridge(req, res) {
     type: imageUrls.length ? 'IMAGETOIAMGE' : 'TEXTTOIAMGE',
     numImages: clamp(Number(body?.n || body?.numImages || 1) || 1, 1, 4),
     image_size: normalizeAspectRatio(body?.size || body?.image_size || body?.aspect_ratio),
-    callBackUrl: 'https://example.com/nanobanana-callback',
+    callBackUrl: 'https://example.com/nixiang-callback',
   };
 
   if (imageUrls.length) {
@@ -1213,8 +1879,8 @@ async function handleNanoBananaImageBridge(req, res) {
 
   try {
     const created = await fetchNanoBananaJson(
-      apiKey,
-      'https://api.nanobananaapi.ai/api/v1/nanobanana/generate',
+      nanoBananaConfig,
+      nanoBananaConfig.generateUrl,
       {
         method: 'POST',
         headers: {
@@ -1226,13 +1892,13 @@ async function handleNanoBananaImageBridge(req, res) {
 
     const taskId = created?.data?.taskId;
     if (!taskId) {
-      throw new Error('NanoBanana did not return a taskId');
+      throw new Error('模型接口没有返回 taskId');
     }
 
-    const task = await waitForNanoBananaResult(apiKey, taskId);
+    const task = await waitForNanoBananaResult(nanoBananaConfig, taskId);
     const resultUrl = task?.response?.resultImageUrl;
     if (!resultUrl) {
-      throw new Error('NanoBanana completed without a result image URL');
+      throw new Error('模型接口没有返回图片结果');
     }
 
     sendJson(res, 200, {
@@ -1247,7 +1913,7 @@ async function handleNanoBananaImageBridge(req, res) {
   } catch (error) {
     sendJson(res, 502, {
       error: {
-        message: error?.message || 'NanoBanana image bridge failed',
+        message: error?.message || '图像生成桥接失败',
       },
     });
   }
@@ -1494,7 +2160,7 @@ async function handleUser(state, req, res) {
     return;
   }
 
-  if (body.action === 'comfy_submit') {
+  if (body.action === 'comfy_submit' || body.action === 'workflow_submit') {
     if (!user) {
       sendJson(res, 200, { success: false, message: 'Invalid session' });
       return;
@@ -1535,7 +2201,7 @@ async function handleUser(state, req, res) {
       created_at: formatSqlDate(task.startedAt),
     });
     await saveState(state);
-    void runWorkflowTask(state, taskId);
+    void runWorkflowTask(state, taskId, readClientNanoBananaConfig(req));
 
     sendJson(res, 200, { success: true, taskId, diary_id: diaryId, data: { taskId } });
     return;
@@ -1585,13 +2251,29 @@ async function serveUploadAsset(res, pathname) {
 }
 
 async function serveStatic(res, pathname) {
+  if (pathname === '/' || pathname === '/index.html') {
+    sendCanvasIndex(res);
+    return;
+  }
+
+  if (pathname.startsWith('/recordings/')) {
+    const relativePath = pathname.replace(/^\/recordings\//, '');
+    const target = path.resolve(recordingsRoot, ...safeSegments(relativePath));
+    if (target.startsWith(recordingsRoot) && (await exists(target))) {
+      await sendFile(res, target);
+      return;
+    }
+    sendJson(res, 404, { success: false, message: 'Recording asset not found' });
+    return;
+  }
+
   const relativePath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const target = path.join(publicRoot, relativePath);
   if (await exists(target)) {
     await sendFile(res, target);
     return;
   }
-  await sendFile(res, path.join(publicRoot, 'index.html'));
+  sendCanvasIndex(res);
 }
 
 await bootstrapRuntimeData();
@@ -1606,7 +2288,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204, {
       'access-control-allow-origin': '*',
       'access-control-allow-methods': 'GET, POST, OPTIONS, PUT, DELETE',
-      'access-control-allow-headers': 'Content-Type, Authorization, X-Requested-With',
+      'access-control-allow-headers': `Content-Type, Authorization, X-Requested-With, ${clientApiUrlHeader}, ${clientApiKeyHeader}, ${imageApiUrlHeader}, ${imageApiKeyHeader}`,
     });
     res.end();
     return;
@@ -1615,29 +2297,36 @@ const server = http.createServer(async (req, res) => {
   try {
     if (pathname === '/healthz' && req.method === 'GET') {
       const privateConfig = await loadPrivateConfig();
+      const nanoBananaStatus = getPublicNanoBananaStatus(privateConfig);
       sendJson(res, 200, {
         ok: true,
         projects: state.projects.length,
         updates: Array.isArray(state.updates.data) ? state.updates.data.length : 0,
-        nanobananaConfigured: Boolean(getNanoBananaApiKey(privateConfig)),
+        modelApiConfigured: nanoBananaStatus.configured,
+        modelApiUrlValid: nanoBananaStatus.valid,
+        imageApiConfigured: Boolean(process.env.NIXIANG_IMAGE_API_KEY || process.env.OPENAI_API_KEY),
       });
       return;
     }
 
     if (pathname === '/api/_offline/meta' && req.method === 'GET') {
       const privateConfig = await loadPrivateConfig();
+      const nanoBananaStatus = getPublicNanoBananaStatus(privateConfig);
       sendJson(res, 200, {
         success: true,
-        projectRoot,
-        publicRoot,
-        runtimeRoot,
         projectCount: state.projects.length,
-        nanobananaConfigured: Boolean(getNanoBananaApiKey(privateConfig)),
+        modelApiConfigured: nanoBananaStatus.configured,
+        modelApiUrlValid: nanoBananaStatus.valid,
+        imageApiConfigured: Boolean(process.env.NIXIANG_IMAGE_API_KEY || process.env.OPENAI_API_KEY),
       });
       return;
     }
 
     if (pathname === '/api/_offline/reset' && req.method === 'POST') {
+      if (process.env.NIXIANG_ALLOW_RESET !== 'true') {
+        sendJson(res, 403, { success: false, message: 'Reset is disabled.' });
+        return;
+      }
       const body = await parseJsonBody(req);
       const nextState = body.mode === 'empty' ? seedDefaultState() : cloneJson(seededState);
       state.projects = nextState.projects;
@@ -1681,8 +2370,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (pathname === '/api/_bridge/nanobanana/images' && req.method === 'POST') {
+    if (pathname === '/api/_bridge/nixiang/images' && req.method === 'POST') {
       await handleNanoBananaImageBridge(req, res);
+      return;
+    }
+
+    if (
+      (pathname === '/api/_bridge/nixiang/image-api' || pathname === '/api/_bridge/codex/images') &&
+      req.method === 'POST'
+    ) {
+      await handleCodexImageBridge(req, res);
       return;
     }
 
@@ -1699,8 +2396,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, () => {
-  log(`Offline local source ready at http://127.0.0.1:${port}`);
-  log('Default local account: admin / admin123');
+  log(`拟像 local source ready at http://127.0.0.1:${port}`);
+  log('Local session is provisioned automatically.');
 });
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

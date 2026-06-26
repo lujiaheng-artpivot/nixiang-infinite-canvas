@@ -9,9 +9,9 @@
       "width": 520,
       "height": 260,
       "title": "API 节点矩阵",
-      "content": "已接通本地 API：auth.php / projects.php / canvas.php / upload.php / user.php / workflow submit / task status / outputs / NanoBanana bridge。\\n\\n演示重点：不是绘画白板，而是完整产品能力链路。",
+      "content": "已接通本地 API：auth.php / projects.php / canvas.php / upload.php / user.php / workflow submit / task status / outputs / 模型接口。\\n\\n演示重点：不是绘画白板，而是完整产品能力链路。",
       "zIndex": 17,
-      "creator": "admin",
+      "creator": "拟像",
       "locked": false
     },
     {
@@ -24,7 +24,7 @@
       "content": "empty_generator",
       "title": "图像生成器",
       "zIndex": 11,
-      "creator": "admin",
+      "creator": "拟像",
       "locked": false,
       "imageGenState": {
         "prompt": "赛博工作台中的 AI 导演控制台，紫色 UI 光效，高级产品渲染",
@@ -46,7 +46,7 @@
         "isComparisonMode": true,
         "comparisonModels": [
           "nano-banana",
-          "gpt-image-1"
+          "nixiang-image"
         ]
       }
     },
@@ -60,7 +60,7 @@
       "content": "/uploads/demo/image-result.svg",
       "title": "图像输出示例",
       "zIndex": 12,
-      "creator": "admin",
+      "creator": "拟像",
       "locked": false
     },
     {
@@ -73,7 +73,7 @@
       "content": "empty_generator",
       "title": "视频生成器",
       "zIndex": 13,
-      "creator": "admin",
+      "creator": "拟像",
       "locked": false,
       "videoGenState": {
         "prompt": "镜头推入拟像无限画布，展示工具栏、生成器和 AI 助手协同工作",
@@ -107,7 +107,7 @@
       "content": "/uploads/demo/video-result.svg",
       "title": "视频任务输出",
       "zIndex": 14,
-      "creator": "admin",
+      "creator": "拟像",
       "locked": false
     },
     {
@@ -118,9 +118,9 @@
       "width": 520,
       "height": 220,
       "title": "音频与声音节点",
-      "content": "声音克隆、音频上传、视频转音频、音画节奏同步。API action: comfy_submit / get_task_outputs。",
+      "content": "声音克隆、音频上传、视频转音频、音画节奏同步。API action: workflow_submit / get_task_outputs。",
       "zIndex": 15,
-      "creator": "admin",
+      "creator": "拟像",
       "locked": false
     },
     {
@@ -142,13 +142,13 @@
         [
           "01",
           "图像生成",
-          "nanobanana bridge",
+          "model bridge",
           "ready"
         ],
         [
           "02",
           "视频生成",
-          "comfy_submit",
+          "workflow_submit",
           "ready"
         ],
         [
@@ -165,7 +165,7 @@
         ]
       ],
       "zIndex": 16,
-      "creator": "admin",
+      "creator": "拟像",
       "locked": false
     }
   ],

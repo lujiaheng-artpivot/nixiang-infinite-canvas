@@ -15,7 +15,7 @@ if (-not $nodeCandidates) {
   Add-Type -AssemblyName PresentationFramework
   [System.Windows.MessageBox]::Show(
     'Node.js was not found. Please install Node.js 22 or newer.',
-    'Nixiang Infinite Canvas'
+    '拟像'
   ) | Out-Null
   exit 1
 }
@@ -80,8 +80,8 @@ if (-not (Wait-Endpoint -Uri 'http://127.0.0.1:3000/')) {
   throw "Canvas frontend failed to start. Check logs\frontend-error.log."
 }
 
-Write-Host 'Nixiang Infinite Canvas is ready: http://localhost:3000' -ForegroundColor Green
-Write-Host 'Local account: admin / admin123'
+Write-Host '拟像 is ready: http://localhost:3000' -ForegroundColor Green
+Write-Host 'Local session is provisioned automatically.'
 
 if (-not $NoBrowser) {
   Start-Process 'http://localhost:3000'

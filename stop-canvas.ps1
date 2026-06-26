@@ -16,4 +16,4 @@ foreach ($name in @('frontend', 'backend')) {
   Remove-Item -LiteralPath $pidFile -Force
 }
 
-Write-Host 'Nixiang Infinite Canvas services stopped.'
+Write-Host '拟像 services stopped.'
